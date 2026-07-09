@@ -66,6 +66,8 @@ export class Room {
         // i really need to think of a better way to do this
         this.editing_playlist_item = 0;
         this.#showRoomActions()
+        this.msg_history = []
+        
     }
     updateMode() {
         this.mode = Object.values(this.playlistItems).find(x => x.order==0).ruleset_id ?? 0
@@ -407,7 +409,9 @@ export class EventQueue {
                 this.room.players[data.user_id].status = data.status
                 if (Object.values(this.room.players).every(p => p.status == "ready")) {
                     // maybe make this not do UI stuff but chat is whatevs rn
-                    addSystemMsg("All Players are ready")
+                    const msg = "All Players are ready"
+                    addSystemMsg(msg)
+                    this.room.msg_history.push(msg)
                 }
             } break;
             case "UserModsChanged": {
