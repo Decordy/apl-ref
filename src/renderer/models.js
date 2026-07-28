@@ -25,6 +25,7 @@ export class User {
 export class Room {
     // stores all information about a room
     constructor(resp) { // RoomJoinedResponse data 
+        this.active = true // if it's currently showing itself
         this.id = resp.room_id 
         this.chat_channel_id = resp.chat_channel_id
         this.name = resp.name
@@ -38,7 +39,7 @@ export class Room {
         this.refs = {}
         this.max_participants = resp.state.slots?.length ?? 0;
         this.player_slots = resp.state.slots ?? []
-
+        
         for (const ref of resp.referees) {
             this.GetUser(ref.user_id).then(() => {
                 this.updateUI()
@@ -70,7 +71,7 @@ export class Room {
         
     }
     updateMode() {
-        this.mode = Object.values(this.playlistItems).find(x => x.order==0).ruleset_id ?? 0
+        this.mode = Object.values(this.playlistItems).find(x => x.order==0)?.ruleset_id ?? 0
     }
     async GetUser(user_id, normal) {
         normal = normal ?? false
@@ -351,6 +352,7 @@ export class EventQueue {
     async #queueLoop() { // TODO maybe add a flag for if we want to update UI
         this.processing = true;
         while (this.arr.length > 0) {
+            console.log("meow")
             const ev = this.arr.shift()
             const data = ev.data
             switch (ev.name) {
@@ -406,12 +408,16 @@ export class EventQueue {
                 delete this.room.playlistItems[data.playlist_item_id]
             } break;
             case "UserStatusChanged": {
+                // Ref can change status apparently
+                if (this.room.players[data.user_id] == undefined) break;
                 this.room.players[data.user_id].status = data.status
-                if (Object.values(this.room.players).every(p => p.status == "ready")) {
+                if (Object.values(this.room.players).every(p => p.status == "ready" || p.status == "referee")) {
                     // maybe make this not do UI stuff but chat is whatevs rn
                     const msg = "All Players are ready"
                     addSystemMsg(msg)
                     this.room.msg_history.push(msg)
+                } else {
+                    console.log(Object.values(this.room.players))
                 }
             } break;
             case "UserModsChanged": {
@@ -446,7 +452,7 @@ export class EventQueue {
             } break;
             }
             this.room.updateMode()
-            this.room.updateUI()
+            if (this.room.active) this.room.updateUI()
         }
         this.processing = false;
     }
