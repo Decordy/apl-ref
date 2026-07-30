@@ -1,7 +1,7 @@
 // ── Theme Toggle ────────────────────────────────────────────────────────────
 
 import { User, Event, EventQueue, Room } from "./models.js"
-import { idFromUsername, osu, logEvent, MODS, addSystemMsg, confirmUI, log } from "./utils.js"
+import { idFromUsername, osu, logEvent, MODS, confirmUI, log } from "./utils.js"
 
 window.console.error = (...args) => {
     log.error(args.join(', '))
@@ -33,7 +33,6 @@ document.title = document.title + ": " + window.version
 window.beatmaps = {}; // global cause like
 // i cant imagine that will cause problems?
 
-let Queue;
 let rooms = {};
 let room_ids = []
 let room;
@@ -51,14 +50,15 @@ function switchRoom(id) {
             if (result.success) {
                 room = new Room(result.data)
                 rooms[result.data.room_id] = room
-                Queue = new EventQueue(room)
+                room.queue = new EventQueue(room)
                 hideRoomCreation()
                 room.updateUI()
             }
         })
+    } else {
+        room = rooms[id]
+        room.updateUI()
     }
-    room = rooms[id]
-    room.updateUI()
 }
 
 async function ircStyleUsername(str) { // old mode is #14573534 for user id, and username otherwise
@@ -106,7 +106,7 @@ async function cmdRunner(room_id, cmd, ...args) {
             osu.StopMatchCountdown(room_id)
             if (countdown_id != null) {
                 clearInterval(countdown_id)
-                addSystemMsg("Countdown aborted")
+                room.addSystemMsg("Countdown aborted")
                 countdown_id = null
             }
         },
@@ -115,7 +115,7 @@ async function cmdRunner(room_id, cmd, ...args) {
         "password": () => {return osu.ChangeRoomSettings(room_id, {password: args[0]})},
         "addref": async () => {return osu.AddReferee(room_id, await ircStyleUsername(args[0]))}, // technically needs to be tested
         "removeref": async () => {return osu.RemoveReferee(room_id, await ircStyleUsername(args[0]))},
-        "listrefs": () => {return addSystemMsg("Unimplemented")}, // need custom logic
+        "listrefs": () => {return room.addSystemMsg("Unimplemented")}, // need custom logic
         "close": () => {
             osu.CloseRoom(room.id)
             let id = room.id;
@@ -126,18 +126,18 @@ async function cmdRunner(room_id, cmd, ...args) {
         },
         "help": () => {
             // TODO: add explainations for subcommands
-            return addSystemMsg(Object.keys(map).join(', '))
+            return room.addSystemMsg(Object.keys(map).join(', '))
         },
     }
     if (!map[cmd]) {
-        addSystemMsg(`Invalid command: ${cmd}`)
+        room.addSystemMsg(`Invalid command: ${cmd}`)
         return false;
     }
     let suc = await map[cmd]()
     let x = suc.success ? "Succeded" : "Failed"
     let err = suc.error ?? ""
     if (needs_resp.includes(cmd) || !suc.success) {
-        addSystemMsg(`Command ${cmd} ${x}. ${err}`)
+        room.addSystemMsg(`Command ${cmd} ${x}. ${err}`)
     }
 }
 
@@ -147,7 +147,7 @@ function handleModChange(args) {
     // "FM" and "NM" also
     if (args.length < 1) {
         console.log("bah youre doing it wrong");
-        addSystemMsg("Usage: !mp mods MD MD MD[1,2,3,4]")
+        room.addSystemMsg("Usage: !mp mods MD MD MD[1,2,3,4]")
         return false;
     }
     let mods = args[0].split("+")
@@ -158,7 +158,7 @@ function handleModChange(args) {
     let allowed_mods = []
     for (const mod of mods) {
         if (mod.length < 2) {
-            addSystemMsg(`Invalid mod acronym: ${mod}`)
+            room.addSystemMsg(`Invalid mod acronym: ${mod}`)
             return false
         }
         const mod_acronym = mod.slice(0,2)
@@ -178,7 +178,7 @@ function handleModChange(args) {
                 // ValidForMultiplayerAsFreeMod
                 let settings = JSON.parse(mod.slice(2))
                 if (settings.length > mod_setting_names.length) {
-                    addSystemMsg("Invalid settings: " + mod + ": too many arguments")
+                    room.addSystemMsg("Invalid settings: " + mod + ": too many arguments")
                     return false
                 }
                 let req_settings = {}
@@ -189,7 +189,7 @@ function handleModChange(args) {
                 }
                 required_mods.push({acronym: mod_acronym, settings: req_settings})
             } catch {
-                addSystemMsg("Invalid settings: " + mod + ": Couldnt parse settings")
+                room.addSystemMsg("Invalid settings: " + mod + ": Couldnt parse settings")
                 return false
             }
         }
@@ -283,7 +283,7 @@ document.addEventListener('click', (e) => {
 let objs = Object.entries(window.api.on)
 for (const cmd of objs) {
     cmd[1](info => {
-        if (info?.room_id == Queue.room.id) Queue.add(new Event(cmd[0], info))    
+        rooms[info?.room_id].queue.add(new Event(cmd[0], info))
         logEvent(cmd[0], info)
     })
 }
@@ -310,24 +310,6 @@ function debugMode() { // this is kinda useless now but wtvs
     ping.classList.add('visible')
     document.getElementById('navbar-room-controls').classList.add('visible')
     document.getElementById('settings-dropdown').classList.add('visible')
-}
-
-function addChatMsg(msg, username, pfp) {
-    document.getElementById("no-messages")?.remove()
-    const template = document.getElementById("chat-message")
-    const clone = template.content.cloneNode(true);
-    
-    clone.querySelector('.chat-avatar').src = pfp
-    clone.querySelector('.chat-username').textContent = username
-    clone.querySelector('.chat-message').textContent = msg
-    
-    const chatbox = document.getElementById("chat-messages")
-    chatbox.appendChild(clone)
-
-    if (chatbox.scrollHeight - chatbox.scrollTop - chatbox.clientHeight < 50) {
-        chatbox.scrollTop = chatbox.scrollHeight;
-    }
-
 }
 
 // Timer
@@ -647,7 +629,7 @@ document.getElementById('make-room-btn').addEventListener('click', async () => {
     if (result.success && result.data) {
         room = new Room(result.data)
         rooms[result.data.room_id] = room
-        Queue = new EventQueue(room)
+        room.queue = new EventQueue(room)
         hideRoomCreation()
         room.updateUI()
     }
@@ -659,7 +641,7 @@ document.getElementById('join-room-btn').addEventListener('click', async () => {
     if (result.success) {
         room = new Room(result.data)
         rooms[result.data.room_id] = room
-        Queue = new EventQueue(room)
+        room.queue = new EventQueue(room)
         hideRoomCreation()
         room.updateUI()
     }
@@ -696,7 +678,7 @@ document.getElementById('stop-countdown-btn').addEventListener('click', async ()
     const result = await osu.StopMatchCountdown(room.id)
     if (countdown_id != null) {
         clearInterval(countdown_id)
-        addSystemMsg("Countdown aborted")
+        room.addSystemMsg("Countdown aborted")
         countdown_id = null
     }
 })
@@ -752,6 +734,7 @@ function commandHandler(message) {
     const commands = {
         "/roll": (max) => {
             osu.Roll(room.id, {max: parseInt(max)})
+            console.log(room.id)
         },
         "!mp": (args) => {
             cmdRunner(room.id, args.shift(), ...args)
@@ -782,12 +765,14 @@ window.api.api.onChatMessage(async buffer => {
     };
     const messages = data.data.messages
     for (const msg of messages) {
-        if (msg.channel_id == room.chat_channel_id) {
+        let r = Object.values(rooms).find(x => x.chat_channel_id == msg.channel_id)
+        if (r != undefined) {
             //console.log("ohmygah")
             console.log(msg.sender_id, msg.content)
             let user = (await room.GetUser(msg.sender_id)).user
-            addChatMsg(msg.content, user.username, user.avatar_url)
-            room.msg_history.push({type: "chat", data: [msg.content, user.username, user.avatar_url]})
+            //room.addChatMsg(msg.content, user.username, user.avatar_url)
+            r.msg_history.push({type: "chat", data: [msg.content, user.username, user.avatar_url]})
+            room.updateUI() // TODO: remove this line
             //if (!commandHandler(user.username, msg.content)) addChatMsg(msg.content, user.username, user.avatar_url)
         }
     }
