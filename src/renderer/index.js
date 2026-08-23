@@ -409,6 +409,15 @@ async function addScore(room_id, playlist_id) {
 function int(id) { return parseInt(document.getElementById(id).value, 10) }
 function str(id) { return document.getElementById(id).value.trim() }
 
+// Go back to Home Menu
+document.getElementById('home-button').addEventListener('click', async () => {
+    if (room != undefined) {
+        room.close();
+        room = undefined;
+    }
+})
+
+
 // Refresh Room List
 document.getElementById('refresh-room-list').addEventListener('click', async () => {
     const rooms_data = await osu.ListRooms()
