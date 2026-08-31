@@ -31,6 +31,7 @@ export class Room {
         this.chat_channel_id = resp.chat_channel_id
         this.msg_history = []
         window.api.api.GetChannelMessages(resp.chat_channel_id).then(x => {
+            console.log(x)
             for (let msg of x.data) {
                 this.msg_history.push({type: "chat", data: [msg.content, msg.sender.username, msg.sender.avatar_url], timestamp: msg.timestamp})
             }
@@ -292,8 +293,16 @@ export class Room {
             chatbox.scrollTop = chatbox.scrollHeight;
         }
     }
+    sendNotification(type) { // type unused for now, all the same
+        let tab = document.getElementById("tabs").querySelector(`[data-room_id="${this.id}"]`)
+    if (!this.active) {
+        const effect = new Audio("sfx/osu-notification.wav")
+        effect.play();
+        tab.querySelector("#notification").classList.remove("hidden")
+    }
+}
     updateUI() {
-
+        if (!this.active) return
         // Players
         console.log("Updating UI")
         document.getElementById("player-list").innerHTML = ''
@@ -462,6 +471,7 @@ export class EventQueue {
                 if (Object.values(this.room.players).every(p => p.status == "ready" || p.status == "referee" || p.status == "spectating")) {
                     const msg = "All Players are ready"
                     this.room.addSystemMsg(msg)
+                    this.room.sendNotification("ready")
                 } else {
                     console.log(Object.values(this.room.players))
                 }
@@ -484,9 +494,11 @@ export class EventQueue {
             } break;
             case "MatchAborted": {
                 this.room.status = "Aborted"
+                this.room.sendNotification("aborted")
             } break;
             case "MatchCompleted": {
                 this.room.status = "Idle"
+                this.room.sendNotification("completed")
             } break;
             case "RollCompleted": {
                 // Again i don't love doing UI changes here but
