@@ -29,6 +29,9 @@ export class Room {
         this.chat_channel_id = resp.chat_channel_id
         this.name = resp.name
         this.password = resp.password
+        // bumped on every updateUI so async renders can tell whether the DOM
+        // they started drawing into is still the current one
+        this.ui_generation = 0
         this.playlistItems = {}
         for (const item of resp.playlist) {
             if (!item.was_played) this.playlistItems[item.id] = item
@@ -207,9 +210,20 @@ export class Room {
             document.getElementById('edit-playlist-modal').classList.add('visible')
         })
 
+        // grab the node before appending: 'clone' empties out once appended 
+        // and looking the node up globally after the await runs
+        // with another updateUI that already wiped and rebuilt the list.
+        // playlist item ids dont change on edit, so old and new nodes share
+        // the same class and querySelector would return the stale one.
+        const item_el = clone.querySelector(".playlist-item")
+        const title_el = item_el.querySelector('.playlist-item-id')
         document.getElementById("playlist-items").appendChild(clone)
+
+        const gen = this.ui_generation
         const beatmap = await GetBeatmap(beatmap_id)
-        document.querySelector(`[class~="${playlist_id}"]`).querySelector('.playlist-item-id').textContent = beatmap.beatmapset.title + ` [${beatmap.version}]`
+        // a newer updateUI() ran while we were waiting; this node is orphaned
+        if (gen !== this.ui_generation || !item_el.isConnected) return
+        title_el.textContent = beatmap.beatmapset.title + ` [${beatmap.version}]`
     }
     #addModSettingUI(mod_list, mod, mod_template) {
         let empty = true
@@ -237,7 +251,10 @@ export class Room {
         return {empty, undefault_settings}
     }
     async #addVerboseMods(user_id, mods) {
+        const gen = this.ui_generation
         let user = await this.GetUser(user_id, true)
+        // GetUser can hit the api; return if the UI was rebuilt while we waited
+        if (gen !== this.ui_generation) return
         const verboseMods = document.getElementById("mods-verbose-container");
         const cur = verboseMods.querySelector(`[data-user_id="${user_id}"]`)
         const template = document.getElementById("player-mods-verbose");
@@ -266,6 +283,8 @@ export class Room {
 
         // Players
         console.log("Updating UI")
+        // invalidates any async render still on the way from a previous call
+        this.ui_generation++
         document.getElementById("player-list").innerHTML = ''
         for (const pid of this.player_slots) { // ordered properly
             const player = this.players[pid] ?? this.refs[pid]
