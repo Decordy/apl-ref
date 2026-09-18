@@ -267,12 +267,13 @@ document.addEventListener('click', (e) => {
 let objs = Object.entries(window.api.on)
 for (const cmd of objs) {
     cmd[1](info => {
-        // log first: if the room check below throws, we still want the event in
-        // the log, otherwise the log silently disagrees with what the UI shows
+        // ok so dont log it first since logEvent deletes room_id off the event so
+        // save it before logging because we need it later
+        const room_id = info?.room_id
         logEvent(cmd[0], info)
         // Queue is undefined before you join a room, and you get room_id as a
         // C# long that may be serialised as a string, so compare as strings
-        if (Queue?.room && String(info?.room_id) === String(Queue.room.id)) {
+        if (Queue?.room && String(room_id) === String(Queue.room.id)) {
             Queue.add(new Event(cmd[0], info))
         }
     })
