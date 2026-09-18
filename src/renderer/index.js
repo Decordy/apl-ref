@@ -654,6 +654,7 @@ document.getElementById('change-settings-btn').addEventListener('click', async (
     if (name) settings.name = name
     if (password) settings.password = password
     const result = await osu.ChangeRoomSettings(room.id, settings)
+    if (!result.success) addSystemMsg(`Settings change failed. ${result.error ?? ""}`)
     hideSettingsDropdown()
 })
 
