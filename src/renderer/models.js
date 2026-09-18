@@ -39,8 +39,23 @@ export class Room {
         this.mode = this.updateMode()
         this.players = {}
         this.refs = {}
-        this.max_participants = resp.state.slots?.length ?? 0;
-        this.player_slots = resp.state.slots ?? []
+        // Limit = 0 is working but null works better i dont know why they did it like that
+        // i mean really why is ChangeRoomSettingsRequest is nullable but MakeRoomRequest is not
+        // and WHY MakeRoomRequest has a documented range of [2, 256] 
+        // BUT ChangeRoomSettingsRequest HAS A DOCUMENTED RANGE OF [2, 128] 
+        // WHILE THE ServerMultiplayerRoom HAS A DOCUMENTED RANGE OF [2, 16] 
+        // AND IT APPLIES ONLY WHEN YOU DO CHANGE ROOM SETTINGS REQUEST 
+        // BUT NOT WHEN YOU MAKE THE ROOM ITSELF
+
+        // I CAN MAKE A ROOM WITH 255 SLOTS (NOT 256 BECAUSE BYTE OVERFLOWS)
+        // I CAN ***TRY*** TO CHANGE IT TO 128 ONLY BECAUSE DOCUMENTED RANGE
+        // AND GET F*CKING REJECTED BECAUSE SERVER LIMIT OF 16?????
+        // WTF
+        this.max_participants = resp.state.slots?.length ?? null
+        // seed the slot list up front: GetUser calls below are async, and
+        // updateUI runs before they resolve. null slots to render
+        // an empty player list until every user request comes back.
+        this.player_slots = resp.state.slots ?? resp.players.map(p => p.user_id)
 
         for (const ref of resp.referees) {
             this.GetUser(ref.user_id).then(() => {
@@ -55,7 +70,6 @@ export class Room {
                 this.players[p.user_id].status = p.status
                 this.players[p.user_id].style = p.style
                 this.players[p.user_id].mods = p.mods
-                if (this.max_participants == 0 ) this.player_slots.push(p.user_id)
                 // TODO: maybe there's a cleaner way to do this?
                 // since it gets the stuff too slowly so yeah
                 this.updateUI()
@@ -310,7 +324,8 @@ export class Room {
         document.getElementById('cur-match-type').textContent = this.type
         document.getElementById('settings-name').value = this.name
         document.getElementById('settings-password').value = this.password
-        document.getElementById('settings-maximum-participants').value = this.max_participants
+        // unlimited shows as a blank field rather than the string "null"
+        document.getElementById('settings-maximum-participants').value = this.max_participants ?? ''
         document.getElementsByName("match_type")[0].checked = this.type == "head_to_head"
         document.getElementsByName("match_type")[1].checked = this.type != "head_to_head"
         
@@ -392,11 +407,13 @@ export class EventQueue {
                     //addPlayer(info.user_id, "idle", user.user.username, "none")
                     this.room.players[data.user_id].status = "idle"
                     this.room.players[data.user_id].team = "none"
-                    if (!this.room.max_participants) this.room.player_slots.push(data.user_id)
+                    // only track slots when the room is unlimited; 
+                    // a sized room gets its slot array from MatchStateChanged
+                    if (this.room.max_participants == null) this.room.player_slots.push(data.user_id)
                 } break;
                 case "UserLeft": {
                     delete this.room.players[data.user_id]
-                    if (!this.room.max_participants) this.room.player_slots = this.room.player_slots.filter(x => x != data.user_id)
+                    if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.user_id)
                 } break;
                 case "UserKicked": {
                     if (data.kicked_user_id == window.me.id) {
@@ -404,19 +421,28 @@ export class EventQueue {
                     // TODO: make sure this works
                     }
                     delete this.room.players[data.kicked_user_id]
-                    if (!this.room.max_participants) this.room.player_slots = this.room.player_slots.filter(x => x != data.kicked_user_id)
+                    if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.kicked_user_id)
                 } break;
                 case "RoomSettingsChanged": {
                     this.room.name = data.name
                     this.room.password = data.password
                     this.room.type = data.type
-                    this.room.max_participants = data.max_participants
-                    if (data.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != null)
+                    // server reports unlimited as null or 0 depending on
+                    // how the room was set up; normalize both to null
+                    this.room.max_participants = data.max_participants || null
+                    // drop to unlimited: hide the padded empty slots away.
+                    // growing or shrinking a sized room is left to MatchStateChanged,
+                    // which the server always sends alongside this.
+                    if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != null)
                 } break;
                 case "MatchStateChanged": {
                     this.room.locked = data.state.locked;
                     this.room.type = data.state.type
-                    if (data.state.slots) this.room.player_slots = data.state.slots
+                    // if settings box still show stale count after resizing the room
+                    if (data.state.slots) {
+                        this.room.player_slots = data.state.slots
+                        this.room.max_participants = data.state.slots.length
+                    }
                 } break;
                 case "PlaylistItemAdded": {
                     if (data.playlist_item.was_played) {
