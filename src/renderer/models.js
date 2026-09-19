@@ -65,7 +65,7 @@ export class Room {
         }
         for (const p of resp.players) {
             this.GetUser(p.user_id, true).then(() => {
-                this.players[p.user_id].team = p.team
+                this.players[p.user_id].team = p.team ?? "none" // this is also set somewhere else but whatever
                 this.players[p.user_id].mods = p.mods
                 this.players[p.user_id].status = p.status
                 this.players[p.user_id].style = p.style
