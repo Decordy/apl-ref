@@ -96,6 +96,8 @@ export class Room {
         user_id = idFromUsername(user_id, this.players, this.refs) ?? user_id
         let user = this.players[user_id] ?? this.refs[user_id]
         if (user != undefined) {
+            // presence handlers just miss refs all the time so cache refs in players and refs 
+            if (normal) this.players[user_id] = user
             return user
         } else {
             console.log("grabbing new player!!", user_id, normal)
@@ -405,14 +407,25 @@ export class EventQueue {
                     const user = await this.room.GetUser(data.user_id, true)
                     console.log(user.user.username, "has joined!!")
                     //addPlayer(info.user_id, "idle", user.user.username, "none")
-                    this.room.players[data.user_id].status = "idle"
-                    this.room.players[data.user_id].team = "none"
+                    // use what GetUser gave you, why read dict if all data is right here...
+                    // andalso  status doubles as the role marker, so don't kill a ref
+                    if (user.status != "referee") {
+                        user.status = "idle"
+                        user.team = "none"
+                    }
                     // only track slots when the room is unlimited; 
                     // a sized room gets its slot array from MatchStateChanged
                     if (this.room.max_participants == null) this.room.player_slots.push(data.user_id)
                 } break;
                 case "UserLeft": {
+                    // leaving the room does not revoke referee privileges, only
+                    // RefereeRemoved does. deleting from refs here loses the flag
+                    // and they come back as "idle" on rejoin
                     delete this.room.players[data.user_id]
+                    // clear the slot too: refs still holds them, so updateUI's
+                    // players ?? refs lookup keeps rendering them otherwise.
+                    // map to null so a sized room keeps its slot positions
+                    this.room.player_slots = this.room.player_slots.map(x => x == data.user_id ? null : x)
                     if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.user_id)
                 } break;
                 case "UserKicked": {
@@ -420,8 +433,27 @@ export class EventQueue {
                         this.close()
                     // TODO: make sure this works
                     }
+                    // same as UserLeft: a kick alone does not revoke referee
+                    // privileges. RefereeRemoved fires alongside when it does
                     delete this.room.players[data.kicked_user_id]
                     if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.kicked_user_id)
+                } break;
+                case "RefereeAdded": {
+                    // privilege, not presence: they may not have joined yet.
+                    // without this they get fetched cold by UserJoined as a
+                    // normal player and render as "idle" instead of "referee"
+                    const user = await this.room.GetUser(data.user_id)
+                    user.status = "referee"
+                } break;
+                case "RefereeRemoved": {
+                    // server kicks them if they were joined at the time,
+                    // so UserKicked deals with the slot list
+                    delete this.room.refs[data.user_id]
+                } break;
+                case "UserBanned": {
+                    delete this.room.players[data.user_id]
+                    delete this.room.refs[data.user_id]
+                    if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.user_id)
                 } break;
                 case "RoomSettingsChanged": {
                     this.room.name = data.name
