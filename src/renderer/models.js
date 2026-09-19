@@ -418,14 +418,8 @@ export class EventQueue {
                     if (this.room.max_participants == null) this.room.player_slots.push(data.user_id)
                 } break;
                 case "UserLeft": {
-                    // leaving the room does not revoke referee privileges, only
-                    // RefereeRemoved does. deleting from refs here loses the flag
-                    // and they come back as "idle" on rejoin
+                    // fix on my stupid attempt
                     delete this.room.players[data.user_id]
-                    // clear the slot too: refs still holds them, so updateUI's
-                    // players ?? refs lookup keeps rendering them otherwise.
-                    // map to null so a sized room keeps its slot positions
-                    this.room.player_slots = this.room.player_slots.map(x => x == data.user_id ? null : x)
                     if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.user_id)
                 } break;
                 case "UserKicked": {
@@ -433,8 +427,6 @@ export class EventQueue {
                         this.close()
                     // TODO: make sure this works
                     }
-                    // same as UserLeft: a kick alone does not revoke referee
-                    // privileges. RefereeRemoved fires alongside when it does
                     delete this.room.players[data.kicked_user_id]
                     if (this.room.max_participants == null) this.room.player_slots = this.room.player_slots.filter(x => x != data.kicked_user_id)
                 } break;
@@ -446,8 +438,6 @@ export class EventQueue {
                     user.status = "referee"
                 } break;
                 case "RefereeRemoved": {
-                    // server kicks them if they were joined at the time,
-                    // so UserKicked deals with the slot list
                     delete this.room.refs[data.user_id]
                 } break;
                 case "UserBanned": {
